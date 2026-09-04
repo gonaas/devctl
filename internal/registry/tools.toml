@@ -116,7 +116,7 @@ product = "wyre"
 # Where the repository copy of the skills lives, for `devctl config drift`.
 # A shipped binary has no repository beside it, so this cannot be inferred.
 [skills]
-repository = "${HOME}/dev/skills/skills"
+repository = "${HOME}/dev/devex/skills/skills"
 
 [discovery]
 roots = ["${HOME}/dev"]
