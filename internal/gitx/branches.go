@@ -36,8 +36,12 @@ const fieldSeparator = "\x09"
 //
 // MERGE_RR is deliberately absent: it is rerere state that lingers long after a
 // merge finishes and would block every worktree that ever hit a conflict.
+//
+// REBASE_HEAD is absent for the same reason: git writes it when a rebase stops
+// on a conflict and never removes it, so it outlives the operation by months.
+// Only rebase-merge and rebase-apply prove a rebase is still running.
 var inProgressMarkers = []string{
-	"MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
+	"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD",
 	"BISECT_LOG", "rebase-merge", "rebase-apply",
 }
 

@@ -97,7 +97,7 @@ func TestAnyBlockingReasonWinsOverACleanVerdict(t *testing.T) {
 		"hosted under a purge-prone temporary path; use rescue, not clean",
 		"3 uncommitted or untracked path(s)",
 		"locked: under review",
-		"interrupted operation in progress: REBASE_HEAD",
+		"interrupted operation in progress: rebase-merge",
 		"main checkout",
 		"contains the current working directory",
 	}
