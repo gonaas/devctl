@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -348,7 +349,16 @@ func InProgressOperation(directory string) string {
 		if !result.OK() {
 			continue
 		}
-		if pathExists(result.FirstLine()) {
+		// git answers --git-path relative to its own working directory in a
+		// main checkout (".git/MERGE_HEAD") and absolutely inside a linked
+		// worktree. Resolving the relative form against this process instead of
+		// the repository silently finds nothing, so every main checkout reads
+		// as clean no matter what it is in the middle of.
+		path := result.FirstLine()
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(directory, path)
+		}
+		if pathExists(path) {
 			return marker
 		}
 	}

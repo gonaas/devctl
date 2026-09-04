@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -243,5 +244,56 @@ func TestResolveBaseFallsBackToWellKnownNames(t *testing.T) {
 	}
 	if got := ResolveBase(repository, "no-such-ref", ""); got != "" {
 		t.Errorf("an override that does not resolve must not be accepted, got %q", got)
+	}
+}
+
+// git writes REBASE_HEAD when a rebase stops on a conflict and never removes it
+// on completion, so reading it as an interrupted operation pins a worktree as
+// IN_PROGRESS for good.
+func TestCompletedRebaseIsNotInProgress(t *testing.T) {
+	repository, _ := buildRepository(t)
+	gitTest(t, repository, "checkout", "-q", "conflicting")
+
+	if result := process.Git([]string{"rebase", "main"}, process.Options{Dir: repository}); result.OK() {
+		t.Fatal("the rebase was expected to stop on a conflict")
+	}
+	if err := writeFile(repository, "base.txt", "resolved\n"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	gitTest(t, repository, "add", "base.txt")
+	gitTest(t, repository, "-c", "core.editor=true", "rebase", "--continue")
+
+	if !pathExists(filepath.Join(repository, ".git", "REBASE_HEAD")) {
+		t.Fatal("expected git to leave REBASE_HEAD behind, so this test still guards something")
+	}
+	if operation := InProgressOperation(repository); operation != "" {
+		t.Errorf("a finished rebase must not read as in progress, got %q", operation)
+	}
+}
+
+// The other direction: dropping REBASE_HEAD must not cost us a running rebase.
+func TestInterruptedRebaseIsInProgress(t *testing.T) {
+	repository, _ := buildRepository(t)
+	gitTest(t, repository, "checkout", "-q", "conflicting")
+
+	if result := process.Git([]string{"rebase", "main"}, process.Options{Dir: repository}); result.OK() {
+		t.Fatal("the rebase was expected to stop on a conflict")
+	}
+	if operation := InProgressOperation(repository); operation != "rebase-merge" {
+		t.Errorf("want rebase-merge, got %q", operation)
+	}
+}
+
+// git answers --git-path relative to its own working directory in a main
+// checkout, and absolutely only inside a linked worktree. Resolving that answer
+// against the caller's process directory finds nothing.
+func TestInterruptedMergeIsFoundInAMainCheckout(t *testing.T) {
+	repository, _ := buildRepository(t)
+
+	if result := process.Git([]string{"merge", "conflicting"}, process.Options{Dir: repository}); result.OK() {
+		t.Fatal("the merge was expected to stop on a conflict")
+	}
+	if operation := InProgressOperation(repository); operation != "MERGE_HEAD" {
+		t.Errorf("want MERGE_HEAD, got %q", operation)
 	}
 }
