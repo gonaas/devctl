@@ -113,6 +113,11 @@ product = "wyre"
 # Prefixes, matched after ${HOME} expansion.
 # ---------------------------------------------------------------------------
 
+# Where the repository copy of the skills lives, for `devctl config drift`.
+# A shipped binary has no repository beside it, so this cannot be inferred.
+[skills]
+repository = "${HOME}/dev/skills/skills"
+
 [discovery]
 roots = ["${HOME}/dev"]
 max_depth = 3

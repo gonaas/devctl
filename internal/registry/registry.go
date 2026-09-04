@@ -73,6 +73,12 @@ type Discovery struct {
 	StalePrefixes     []string `toml:"stale_prefixes"`
 }
 
+// Skills says where the repository copy of the skills lives. A shipped binary
+// has no repository beside it, so this cannot be inferred and must be declared.
+type Skills struct {
+	Repository string `toml:"repository"`
+}
+
 // Registry is every externally declared system, loaded from data.
 type Registry struct {
 	ProjectSources []ProjectSource
@@ -80,6 +86,7 @@ type Registry struct {
 	Agents         []Agent
 	ProductRules   []ProductRule
 	Discovery      Discovery
+	Skills         Skills
 	SourcePath     string
 }
 
@@ -91,6 +98,7 @@ type document struct {
 		Rule []ProductRule `toml:"rule"`
 	} `toml:"product"`
 	Discovery Discovery `toml:"discovery"`
+	Skills    Skills    `toml:"skills"`
 }
 
 // ExpandHome replaces the single supported placeholder with a home directory.
@@ -228,6 +236,7 @@ func parse(raw []byte, home string) (Registry, error) {
 	discovery.TemporaryPrefixes = expandAll(discovery.TemporaryPrefixes, home)
 	discovery.StalePrefixes = expandAll(discovery.StalePrefixes, home)
 	registry.Discovery = discovery
+	registry.Skills = Skills{Repository: ExpandHome(doc.Skills.Repository, home)}
 
 	return registry, nil
 }

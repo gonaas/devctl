@@ -1,0 +1,54 @@
+# Build and publish devctl, and update the Homebrew formula on a tag.
+#
+# The formula is GENERATED from the brews block below and pushed to the tap by
+# GoReleaser. Never hand-edit Formula/devctl.rb in the tap; change this file.
+version: 2
+
+project_name: devctl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: devctl
+    main: ./cmd/devctl
+    binary: devctl
+    env:
+      # The SQLite driver is pure Go, so the whole matrix cross-compiles without
+      # a C toolchain. Keep it that way.
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    # This template is what makes the generated formula's URLs resolve. Changing
+    # it silently breaks every future formula.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - repository:
+      owner: gonaas
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Prereleases publish assets but must not move the formula.
+    skip_upload: auto
+    directory: Formula
+    name: devctl
+    homepage: "https://github.com/gonaas/devctl"
+    description: "Tool-agnostic CLI for git worktree hygiene and agent-stack inspection."
+    license: "MIT"
+    commit_msg_template: "chore: update devctl formula to {{ .Tag }}"
+    test: |
+      assert_match "devctl #{version}", shell_output("#{bin}/devctl version")
+
+release:
+  prerelease: auto
