@@ -63,9 +63,12 @@ func listWorktrees(arguments []string, stdout io.Writer, wantConflict, problemsO
 
 	reports := result.Reports
 	if problemsOnly {
+		// Hazards only. A blocking reason such as "main checkout", and ordinary
+		// state such as uncommitted work, are facts rather than problems; listing
+		// them here would report almost every worktree and say nothing.
 		filtered := reports[:0:0]
 		for _, report := range reports {
-			if len(report.Flags) > 0 || len(report.BlockingReasons) > 0 {
+			if report.HasHazard() {
 				filtered = append(filtered, report)
 			}
 		}

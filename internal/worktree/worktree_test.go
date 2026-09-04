@@ -131,3 +131,28 @@ func TestIsUnderRejectsSharedNamePrefixes(t *testing.T) {
 		t.Error("a path is under itself for this purpose")
 	}
 }
+
+func TestOnlyHazardsCountAsProblems(t *testing.T) {
+	// Ordinary working state must not be reported as a problem, or the problem
+	// view lists nearly everything and stops being a view.
+	ordinary := []string{Dirty, Detached, NoRemote, Drift}
+	for _, flag := range ordinary {
+		report := &Report{Flags: []string{flag}}
+		if report.HasHazard() {
+			t.Errorf("%s describes ordinary state and must not be a hazard", flag)
+		}
+	}
+	hazards := []string{Temporary, Ghost, AtRisk, UnreferencedHead, Locked, InProgress}
+	for _, flag := range hazards {
+		report := &Report{Flags: []string{flag}}
+		if !report.HasHazard() {
+			t.Errorf("%s is worth acting on and must be a hazard", flag)
+		}
+	}
+	if (&Report{}).HasHazard() {
+		t.Error("no flags means no hazard")
+	}
+	if !(&Report{Flags: []string{Dirty, AtRisk}}).HasHazard() {
+		t.Error("one hazard among ordinary flags still counts")
+	}
+}

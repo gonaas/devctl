@@ -26,7 +26,7 @@ func RunDoctor(arguments []string, stdout io.Writer) error {
 
 	var flagged []*worktree.Report
 	for _, report := range result.Reports {
-		if len(report.Flags) > 0 {
+		if report.HasHazard() {
 			flagged = append(flagged, report)
 		}
 	}

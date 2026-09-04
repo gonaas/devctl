@@ -1,0 +1,109 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Tech stack: Go 1.25 (module github.com/gonaas/devctl), 44 files, ~5900 lines, 13 internal packages.
+  Architecture: strict hexagonal/ports-and-adapters; internal/adapters is the only package
+  allowed to hold concrete integrations, enforced by internal/app/agnosticism_test.go
+  (regex-scans every .go file and the rendered --help output for vendor names).
+  Testing: stdlib `testing` only (no testify); git-dependent tests shell out to a real git
+  binary against throwaway repos in t.TempDir(); `go test ./...` passes across 14 packages.
+  Style: gofmt-clean, go vet clean, no golangci-lint configured; CI runs gofmt/vet/test/cross-compile.
+
+strict_tdd: true
+
+review_budget_lines: 800   # session preflight value, PR review budget (additions + deletions)
+delivery_strategy: ask-on-risk   # session preflight value, cached by the orchestrator
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Preserve existing safety contracts — dry-run default, --apply as the only mutating path,
+      recovery manifests written before mutation, UNKNOWN never deleted
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Any new vendor/library integration MUST live under internal/adapters; core packages
+      MUST stay vendor-agnostic (see internal/app/agnosticism_test.go)
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Favor closing the direct-test gap in internal/cli, internal/config, internal/rescue,
+      internal/survey when a change touches those packages
+  apply:
+    guidelines:
+      - Follow existing code patterns (stdlib testing only, no testify)
+      - Keep internal/adapters as the only package with concrete vendor integrations
+      - dry-run stays the default; --apply remains the only mutating path
+    tdd: true
+    test_command: "go test ./..."
+  verify:
+    test_command: "go test ./..."
+    build_command: "go build ./..."
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+
+# One workspace-level Go module; no nested go.mod/package.json/pyproject.toml/Cargo.toml found
+# within 3 directory levels of the workspace root.
+projects:
+  - path: "."
+    stack: "Go 1.25 (module github.com/gonaas/devctl)"
+    test_command: "go test ./..."
+    coverage_command: "go test -cover ./..."
+    lint_command: "go vet ./..."
+    format_command: "gofmt -l ."
+
+testing:
+  strict_tdd: true
+  strict_tdd_rationale: >
+    Non-empty discovered project set (one Go module at workspace root) and an explicit
+    workspace-level test command (`go test ./...`, run in .github/workflows/ci.yml) covers
+    every in-scope project.
+  detected: "2026-09-04"
+  projects:
+    - path: "."
+      stack: "Go 1.25"
+      test_command: "go test ./..."
+      framework: "stdlib testing"
+  layers:
+    - path: "."
+      layer: unit
+      available: true
+      tool: "stdlib testing"
+    - path: "."
+      layer: integration
+      available: true
+      tool: "real git binary via os/exec against t.TempDir() repos"
+    - path: "."
+      layer: e2e
+      available: false
+      tool: null
+  coverage:
+    - path: "."
+      available: true
+      command: "go test -cover ./..."
+  quality:
+    - path: "."
+      tool: linter
+      available: true
+      command: "go vet ./..."
+    - path: "."
+      tool: type_checker
+      available: false
+      command: null
+      note: "N/A — statically typed at compile time; no golangci-lint configured"
+    - path: "."
+      tool: formatter
+      available: true
+      command: "gofmt -l ."
+  gaps:
+    - "internal/cli has zero direct tests (10-file command-wiring layer — the main gap found by the prior sdd-explore phase)"
+    - "internal/config has zero direct tests"
+    - "internal/rescue has zero direct tests"
+    - "internal/survey has zero direct tests"
+    - "no golangci-lint configured"
+    - "CI runs go test ./... but does not collect/report coverage"

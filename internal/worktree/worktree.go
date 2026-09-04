@@ -26,6 +26,32 @@ const (
 	UnreferencedHead = "UNREFERENCED_HEAD"
 )
 
+// hazardFlags are the flags that mean something is wrong or at risk, as opposed
+// to the ones that merely describe ordinary working state.
+//
+// DIRTY, DETACHED, NO_REMOTE and DRIFT all block automated removal and belong in
+// a full listing, but none of them is a problem: uncommitted work in the checkout
+// you are using today is Tuesday, not an incident. Reporting them as problems
+// makes the problem view useless, which is worse than not having one.
+var hazardFlags = map[string]bool{
+	Temporary:        true,
+	Ghost:            true,
+	AtRisk:           true,
+	UnreferencedHead: true,
+	Locked:           true,
+	InProgress:       true,
+}
+
+// HasHazard reports whether a report carries a flag worth acting on.
+func (r Report) HasHazard() bool {
+	for _, flag := range r.Flags {
+		if hazardFlags[flag] {
+			return true
+		}
+	}
+	return false
+}
+
 // State is what `git status --porcelain=v2` reports for one worktree.
 type State struct {
 	HeadOID        string
