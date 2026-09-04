@@ -1,0 +1,121 @@
+# devctl registry — the ONLY file in this project that names vendors.
+#
+# This copy is compiled into the binary as the shipped default. To change it,
+# copy it to ~/.config/devctl/tools.toml and edit that, or point DEVCTL_REGISTRY
+# at a file of your own. `devctl config registry` prints these defaults.
+#
+# Everything here is data. The CLI's logic never mentions a tool by name; it
+# reads these declarations and degrades cleanly when an entry is unavailable.
+# Replacing the whole agent stack is an edit to this file, not a code change.
+#
+# ${HOME} is expanded at load time. No other interpolation is performed.
+
+# ---------------------------------------------------------------------------
+# Project sources — where the CLI learns which projects and directories exist.
+# The "filesystem" source is built in and always available; it needs no entry.
+# ---------------------------------------------------------------------------
+
+# A memory store with a SQLite backend.
+#
+# Read-only by construction: the reader opens the database with mode=ro and
+# PRAGMA query_only=ON, so it can neither write nor checkpoint, and the database
+# file stays byte-identical. SQLite still creates the empty -shm and -wal side
+# files needed to read a WAL database while another process writes.
+#
+# Why the database and not the tool's own CLI: as of engram 1.20.0 that CLI
+# publishes no machine contract. `projects list --json`, `stats --json` and
+# `context --json` all silently ignore the flag and exit 0; `export -` creates
+# a file literally named "-"; `export /dev/stdout` appends a human summary
+# after the closing brace on fd 1, so piping to a JSON parser fails mid-parse;
+# and `serve --help` has no flag parsing and tries to bind the port. Nothing
+# rejects an unknown flag, so an adapter could never detect that its flag was
+# ignored. A declared read-only query is the only stable surface.
+[project_source.memory-store]
+kind = "sqlite"
+database = "${HOME}/.engram/engram.db"
+query = """
+SELECT project, directory, COUNT(*) AS weight, MAX(started_at) AS last_active
+FROM sessions
+GROUP BY project, directory
+"""
+required_columns = ["project", "directory"]
+timestamps = "utc"
+
+# ---------------------------------------------------------------------------
+# Tools — health probes for `devctl config doctor`.
+#
+# health_format:
+#   "json"       parse stdout as JSON and read status_path; ok when the value
+#                is in ok_values
+#   "exit_code"  the tool ships no machine-readable mode; exit 0 means healthy
+# ---------------------------------------------------------------------------
+
+[tool.memory-store]
+binary = "engram"
+health = ["doctor", "--json"]
+health_format = "json"
+status_path = "status"
+ok_values = ["ok", "healthy"]
+
+[tool.stack-manager]
+binary = "gentle-ai"
+health = ["doctor"]
+health_format = "exit_code"
+
+# ---------------------------------------------------------------------------
+# Agent runtimes — skill roots compared by `devctl config drift`.
+# Seeded verbatim from the TARGETS map in scripts/link-agent-skills.py;
+# tests/test_registry.py asserts the two never drift apart.
+# ---------------------------------------------------------------------------
+
+[agent.agents]
+skills_root = "${HOME}/.agents/skills"
+
+[agent.claude]
+skills_root = "${HOME}/.claude/skills"
+config_files = ["${HOME}/.claude/settings.json"]
+
+[agent.codex]
+skills_root = "${HOME}/.codex/skills"
+
+[agent.opencode]
+skills_root = "${HOME}/.config/opencode/skills"
+
+[agent.pi]
+skills_root = "${HOME}/.pi/agent/skills"
+
+# ---------------------------------------------------------------------------
+# Product map — which product a directory belongs to.
+#
+# Evaluated FIRST-MATCH-WINS in declared order, mirroring the `case` semantics
+# of the engram_project_hook in ~/.zshrc. Order is load-bearing: a carve-out
+# must precede the tree it sits inside, or it gets swallowed. A longest-prefix
+# heuristic would be wrong here.
+#
+# product = "" means "this path is its own product" — do not absorb it into an
+# enclosing tree; fall back to the source's project value or the repo name.
+# ---------------------------------------------------------------------------
+
+[[product.rule]]
+prefix = "${HOME}/dev/wyre/civia"
+product = ""
+
+[[product.rule]]
+prefix = "${HOME}/dev/qamarero"
+product = "qamarero"
+
+[[product.rule]]
+prefix = "${HOME}/dev/wyre"
+product = "wyre"
+
+# ---------------------------------------------------------------------------
+# Source directories that are known-dead and must never be reported as repos.
+# Prefixes, matched after ${HOME} expansion.
+# ---------------------------------------------------------------------------
+
+[discovery]
+roots = ["${HOME}/dev"]
+max_depth = 3
+skip_directories = ["node_modules", "vendor", ".git", "__pycache__", ".venv", "target"]
+temporary_prefixes = ["/private/tmp", "/private/var/folders"]
+stale_prefixes = ["/Users/gonzaloastudilloortega"]

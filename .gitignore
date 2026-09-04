@@ -1,0 +1,11 @@
+# Build output
+/devctl
+/dist/
+*.exe
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor and OS
+.DS_Store
