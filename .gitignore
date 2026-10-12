@@ -10,3 +10,6 @@ go.work.sum
 
 # Editor and OS
 .DS_Store
+
+# Local agent runtime state
+.engram/
