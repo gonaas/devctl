@@ -4,6 +4,7 @@ package survey
 import (
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/gonaas/devctl/internal/adapters"
@@ -30,7 +31,7 @@ type Context struct {
 	forge        adapters.Forge
 	slug         string
 	pullRequests []gitx.PullRequest
-	fetched      bool
+	pullOnce     sync.Once
 }
 
 // HasProvider reports whether a hosting provider can answer authoritatively.
@@ -39,13 +40,15 @@ func (c *Context) HasProvider() bool {
 }
 
 // PullRequests returns this repository's change requests, fetching at most once.
+//
+// Worktrees of one repository are inspected concurrently and each may ask this
+// same question, so the lazy fetch is guarded rather than merely idempotent.
 func (c *Context) PullRequests() []gitx.PullRequest {
-	if !c.fetched {
-		c.fetched = true
+	c.pullOnce.Do(func() {
 		if c.HasProvider() {
 			c.pullRequests = c.forge.PullRequests(c.slug)
 		}
-	}
+	})
 	return c.pullRequests
 }
 
@@ -154,7 +157,16 @@ func AnalyseBranch(context *Context, branch, tip string, wantConflict bool) *wor
 	return analysis
 }
 
+// maxSurveyWorkers bounds how many worktrees are inspected at once. Every unit
+// of work may spawn a git subprocess, so the bound is what keeps a tree with
+// dozens of worktrees from saturating the machine.
+const maxSurveyWorkers = 8
+
 // Run inspects every discovered repository and classifies all of its worktrees.
+//
+// Work is fanned out over a bounded pool, but every result is written back by
+// its discovery index, so the reported order is the discovery order rather than
+// the order the work happened to finish in.
 func Run(reg registry.Registry, set adapters.Set, options Options) Survey {
 	result := discovery.Discover(reg, set, options.Roots)
 	survey := Survey{Discovery: result, Contexts: map[string]*Context{}}
@@ -164,46 +176,115 @@ func Run(reg registry.Registry, set adapters.Set, options Options) Survey {
 		current = gitx.RealPath(cwd)
 	}
 
+	selected := make([]*gitx.Repository, 0, len(result.Repositories))
 	for _, repository := range result.Repositories {
 		if options.Product != "" && !repository.Products[options.Product] {
 			continue
 		}
-		context := buildContext(repository, set, options.BaseOverride)
-		survey.Contexts[repository.CommonDir] = context
+		selected = append(selected, repository)
+	}
 
-		product := repository.Name()
-		if products := repository.SortedProducts(); len(products) > 0 {
-			product = products[0]
-		}
+	// One context per repository, built concurrently. Each context is fully
+	// owned by one worker until it is published, so no lock is needed here; the
+	// map itself is written by this goroutine alone once every worker finished.
+	contexts := make([]*Context, len(selected))
+	boundedEach(len(contexts), maxSurveyWorkers, func(index int) {
+		contexts[index] = buildContext(selected[index], set, options.BaseOverride)
+	})
+	for index, repository := range selected {
+		survey.Contexts[repository.CommonDir] = contexts[index]
+	}
 
-		for _, item := range repository.Worktrees {
-			state := worktree.ReadState(item.Path)
-			branch := item.ShortBranch()
-			tip := item.Head
-			if tip == "" {
-				tip = state.HeadOID
-			}
-
-			report := &worktree.Report{
-				Repository: repository,
-				Worktree:   item,
-				State:      state,
-				Analysis:   AnalyseBranch(context, branch, tip, options.WantConflict),
-				Product:    product,
-				SizeBytes:  -1,
-			}
-			if options.WantSize {
-				report.SizeBytes = worktree.SizeBytes(item.Path)
-			}
-			worktree.Classify(report, worktree.ClassifyInput{
-				TemporaryPrefixes: reg.Discovery.TemporaryPrefixes,
-				RemoteBranches:    context.RemoteBranches,
-				CurrentDirectory:  current,
-			})
-			survey.Reports = append(survey.Reports, report)
+	// One task per worktree. Worktrees of a repository may run concurrently and
+	// all share that repository's context, which is why Context.PullRequests is
+	// guarded by sync.Once.
+	type task struct{ repository, worktree int }
+	tasks := make([]task, 0, len(selected))
+	perRepository := make([][]*worktree.Report, len(selected))
+	for repositoryIndex, repository := range selected {
+		perRepository[repositoryIndex] = make([]*worktree.Report, len(repository.Worktrees))
+		for worktreeIndex := range repository.Worktrees {
+			tasks = append(tasks, task{repository: repositoryIndex, worktree: worktreeIndex})
 		}
 	}
+
+	boundedEach(len(tasks), maxSurveyWorkers, func(index int) {
+		assignment := tasks[index]
+		repository := selected[assignment.repository]
+		context := contexts[assignment.repository]
+		item := repository.Worktrees[assignment.worktree]
+
+		state := worktree.ReadState(item.Path)
+		branch := item.ShortBranch()
+		tip := item.Head
+		if tip == "" {
+			tip = state.HeadOID
+		}
+
+		report := &worktree.Report{
+			Repository: repository,
+			Worktree:   item,
+			State:      state,
+			Analysis:   AnalyseBranch(context, branch, tip, options.WantConflict),
+			Product:    productOf(repository),
+			SizeBytes:  -1,
+		}
+		if options.WantSize {
+			report.SizeBytes = worktree.SizeBytes(item.Path)
+		}
+		worktree.Classify(report, worktree.ClassifyInput{
+			TemporaryPrefixes: reg.Discovery.TemporaryPrefixes,
+			RemoteBranches:    context.RemoteBranches,
+			CurrentDirectory:  current,
+		})
+
+		perRepository[assignment.repository][assignment.worktree] = report
+	})
+
+	for repositoryIndex := range perRepository {
+		survey.Reports = append(survey.Reports, perRepository[repositoryIndex]...)
+	}
 	return survey
+}
+
+// productOf names the product a repository belongs to, preferring a declared
+// product over the repository name.
+func productOf(repository *gitx.Repository) string {
+	if products := repository.SortedProducts(); len(products) > 0 {
+		return products[0]
+	}
+	return repository.Name()
+}
+
+// boundedEach runs work(0..total-1) on at most workers goroutines at a time and
+// returns once every call has finished.
+func boundedEach(total, workers int, work func(int)) {
+	if total <= 0 {
+		return
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > total {
+		workers = total
+	}
+
+	indices := make(chan int)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			defer group.Done()
+			for index := range indices {
+				work(index)
+			}
+		}()
+	}
+	for index := 0; index < total; index++ {
+		indices <- index
+	}
+	close(indices)
+	group.Wait()
 }
 
 // SortedContexts returns contexts in a stable order for reporting.
