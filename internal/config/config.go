@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gonaas/devctl/internal/process"
@@ -126,12 +127,27 @@ func ProbeTool(definition registry.Tool) ToolHealth {
 		fmt.Sprintf("%s = %s", definition.StatusPath, value)}
 }
 
-// ToolHealthAll probes every declared tool, in declaration order.
+// ToolHealthAll probes every declared tool concurrently, returning results
+// in declaration order (one goroutine per tool, results written by index).
+//
+// The concurrency is deliberately unbounded: the registry is embedded in the
+// binary and declares a handful of tools, so one goroutine per tool is the
+// whole fan-out. If the registry ever grows to a size not authored here, add a
+// bounded pool before that, because each probe may spawn a subprocess.
 func ToolHealthAll(reg registry.Registry) []ToolHealth {
-	results := make([]ToolHealth, 0, len(reg.Tools))
-	for _, tool := range reg.Tools {
-		results = append(results, ProbeTool(tool))
+	results := make([]ToolHealth, len(reg.Tools))
+	if len(reg.Tools) == 0 {
+		return results
 	}
+	var wg sync.WaitGroup
+	for i, tool := range reg.Tools {
+		wg.Add(1)
+		go func(i int, t registry.Tool) {
+			defer wg.Done()
+			results[i] = ProbeTool(t)
+		}(i, tool)
+	}
+	wg.Wait()
 	return results
 }
 
