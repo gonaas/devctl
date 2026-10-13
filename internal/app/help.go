@@ -23,6 +23,7 @@ COMMANDS
   worktrees clean       remove worktrees that are provably dead (dry run by default)
   worktrees rescue      secure worktrees hosted on purge-prone paths
   branches list         local branches with merge status and orphan risk
+  changes               files a commit range touches, against the merge base
   runtime orphans       runtime resources bound to directories that have gone
   config doctor         probe every declared tool
   config drift          compare repository skills with installed copies

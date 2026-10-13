@@ -36,6 +36,8 @@ func RunArgs(arguments []string, stdout io.Writer) error {
 		return cli.RunWorktrees(arguments[1:], stdout)
 	case "branches":
 		return cli.RunBranches(arguments[1:], stdout)
+	case "changes":
+		return cli.RunChanges(arguments[1:], stdout)
 	case "runtime":
 		return cli.RunRuntime(arguments[1:], stdout)
 	case "config":

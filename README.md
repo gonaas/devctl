@@ -19,6 +19,7 @@ devctl worktrees doctor    # only what is wrong
 devctl worktrees clean     # what is provably safe to delete (dry run)
 devctl worktrees rescue    # secure worktrees on purge-prone paths
 devctl branches list       # merge status and orphan risk per branch
+devctl changes             # files a commit range touches, against the merge base
 devctl config doctor       # health of every declared tool
 devctl config drift        # repository skills vs installed copies
 devctl context             # a compact machine summary for an agent
