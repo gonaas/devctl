@@ -290,10 +290,16 @@ func TestInterruptedRebaseIsInProgress(t *testing.T) {
 func TestInterruptedMergeIsFoundInAMainCheckout(t *testing.T) {
 	repository, _ := buildRepository(t)
 
-	if result := process.Git([]string{"merge", "conflicting"}, process.Options{Dir: repository}); result.OK() {
-		t.Fatal("the merge was expected to stop on a conflict")
+	result := process.Git([]string{"merge", "conflicting"}, process.Options{Dir: repository})
+	if result.OK() {
+		t.Fatalf("the merge was expected to stop on a conflict, but it succeeded: %s", result.Stdout)
 	}
 	if operation := InProgressOperation(repository); operation != "MERGE_HEAD" {
-		t.Errorf("want MERGE_HEAD, got %q", operation)
+		// The failure carries the merge's own answer, because the environment that
+		// reproduces it is not always the one it is read from.
+		t.Errorf("want MERGE_HEAD, got %q\nmerge code: %d\nmerge stdout: %s\nmerge stderr: %s\nstatus: %s\neffective git config:\n%s",
+			operation, result.Code, result.Stdout, result.Stderr,
+			process.Git([]string{"status", "--porcelain"}, process.Options{Dir: repository}).Stdout,
+			process.Git([]string{"config", "--list"}, process.Options{Dir: repository}).Stdout)
 	}
 }
